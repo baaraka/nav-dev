@@ -9,10 +9,12 @@
     </router-link>
 
     <div class="flex items-center gap-5">
+      <router-link to="/rider"><span class="text-xl">Rider</span></router-link>
+
       <router-link to="/customer"
         ><span class="text-xl">Customer</span></router-link
       >
-      <router-link to="/rider"><span class="text-xl">Rider</span></router-link>
+      <router-link to="/boss"><span class="text-xl">Boss</span></router-link>
     </div>
   </div>
 </template>
