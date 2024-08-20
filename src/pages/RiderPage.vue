@@ -34,6 +34,12 @@
         </div>
       </div>
     </div>
+    <div
+      v-if="errorMessage"
+      class="fixed top-0 left-0 w-full bg-red-500 text-white p-4"
+    >
+      {{ errorMessage }}
+    </div>
   </div>
 </template>
 
@@ -41,10 +47,11 @@
 import { ref, onMounted, onBeforeUnmount } from "vue";
 import { getGoogleMapsLoader } from "@/utils/googleMapsLoader";
 import { db } from "@/firebase";
-import { doc, setDoc, onSnapshot, getDoc } from "firebase/firestore";
+import { doc, setDoc, onSnapshot } from "firebase/firestore";
+import { Geolocation } from "@capacitor/geolocation";
 
 const routeDoc = doc(db, "routes", "currentRoute");
-const riderDoc = doc(db, "riders", "currentRider"); // Assumes this document contains rider's location
+const riderDoc = doc(db, "riders", "currentRider");
 
 const map = ref(null);
 const mainDirectionsRenderer = ref(null);
@@ -54,6 +61,7 @@ const currentLocation = ref("");
 const destination = ref("");
 const distance = ref("");
 const duration = ref("");
+const errorMessage = ref("");
 let currentLocationMarker = null;
 let destinationMarker = null;
 let intervalId = null;
@@ -100,6 +108,7 @@ const updateRoute = (origin, destination) => {
       const selectedRoute = result.routes[0].legs[0];
       updateRouteInfo(selectedRoute);
     } else {
+      errorMessage.value = `Directions request failed due to ${status}`;
       console.error("Directions request failed due to " + status);
     }
   });
@@ -107,11 +116,18 @@ const updateRoute = (origin, destination) => {
 
 const updateRouteInfo = (route) => {
   setDoc(routeDoc, {
-    origin: route.start_address,
-    destination: route.end_address,
+    origin: {
+      lat: route.start_location.lat(),
+      lng: route.start_location.lng(),
+    },
+    destination: {
+      lat: route.end_location.lat(),
+      lng: route.end_location.lng(),
+    },
     distance: route.distance.text,
     duration: route.duration.text,
   }).catch((error) => {
+    errorMessage.value = `Error writing document: ${error.message}`;
     console.error("Error writing document: ", error);
   });
 
@@ -122,34 +138,46 @@ const updateRouteInfo = (route) => {
 };
 
 const getAddress = (location, elementId) => {
-  const geocoder = new google.maps.Geocoder();
-  geocoder.geocode({ location }, (results, status) => {
-    if (status === "OK" && results[0]) {
-      document.getElementById(elementId).innerText =
-        results[0].formatted_address;
-    } else {
-      console.error("Geocode failed due to: " + status);
-    }
-  });
+  try {
+    const geocoder = new google.maps.Geocoder();
+    geocoder.geocode({ location }, (results, status) => {
+      if (status === "OK" && results[0]) {
+        document.getElementById(elementId).innerText =
+          results[0].formatted_address;
+      } else {
+        errorMessage.value = `Geocode failed due to: ${status}`;
+        console.error("Geocode failed due to: " + status);
+      }
+    });
+  } catch (error) {
+    errorMessage.value = `Error in getAddress: ${error.message}`;
+    console.error("Error in getAddress: ", error);
+  }
 };
 
 const calculateDistance = (start, end) => {
-  const service = new google.maps.DistanceMatrixService();
-  service.getDistanceMatrix(
-    {
-      origins: [start],
-      destinations: [end],
-      travelMode: google.maps.TravelMode.DRIVING,
-    },
-    (response, status) => {
-      if (status === google.maps.DistanceMatrixStatus.OK) {
-        const distanceValue = response.rows[0].elements[0].distance.text;
-        draggingInfo.value = { distance: distanceValue };
-      } else {
-        console.error("Distance calculation failed due to " + status);
+  try {
+    const service = new google.maps.DistanceMatrixService();
+    service.getDistanceMatrix(
+      {
+        origins: [start],
+        destinations: [end],
+        travelMode: google.maps.TravelMode.DRIVING,
+      },
+      (response, status) => {
+        if (status === google.maps.DistanceMatrixStatus.OK) {
+          const distanceValue = response.rows[0].elements[0].distance.text;
+          draggingInfo.value = { distance: distanceValue };
+        } else {
+          errorMessage.value = `Distance calculation failed due to ${status}`;
+          console.error("Distance calculation failed due to " + status);
+        }
       }
-    }
-  );
+    );
+  } catch (error) {
+    errorMessage.value = `Error in calculateDistance: ${error.message}`;
+    console.error("Error in calculateDistance: ", error);
+  }
 };
 
 const startRoute = () => {
@@ -162,35 +190,45 @@ const startRoute = () => {
         currentLocationMarker.getPosition(),
         destinationMarker.getPosition()
       );
+      map.value.fitBounds(
+        new google.maps.LatLngBounds(
+          currentLocationMarker.getPosition(),
+          destinationMarker.getPosition()
+        )
+      );
     }
-  }, 60000); // Update every minute
+  }, 60000); // Update every 60 seconds
 };
 
 const initializeMap = async () => {
-  const loader = getGoogleMapsLoader();
+  try {
+    const loader = getGoogleMapsLoader();
+    loader.load().then(async () => {
+      console.log("Google Maps loaded");
 
-  loader.load().then(async () => {
-    map.value = new google.maps.Map(document.getElementById("map"), {
-      center: { lat: -6.7924, lng: 39.2083 },
-      zoom: 12,
-    });
+      map.value = new google.maps.Map(document.getElementById("map"), {
+        center: { lat: -6.7924, lng: 39.2083 },
+        zoom: 12,
+      });
 
-    const input = document.getElementById("autocomplete");
-    const autocomplete = new google.maps.places.Autocomplete(input);
-    autocomplete.bindTo("bounds", map.value);
+      const input = document.getElementById("autocomplete");
+      const autocomplete = new google.maps.places.Autocomplete(input);
+      autocomplete.bindTo("bounds", map.value);
 
-    mainDirectionsRenderer.value = new google.maps.DirectionsRenderer({
-      polylineOptions: {
-        strokeColor: "#00008B",
-        strokeOpacity: 1.0,
-        strokeWeight: 6,
-      },
-      suppressMarkers: true,
-    });
-    mainDirectionsRenderer.value.setMap(map.value);
+      mainDirectionsRenderer.value = new google.maps.DirectionsRenderer({
+        polylineOptions: {
+          strokeColor: "#00008B",
+          strokeOpacity: 1.0,
+          strokeWeight: 6,
+        },
+        suppressMarkers: true,
+      });
+      mainDirectionsRenderer.value.setMap(map.value);
 
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(async (position) => {
+      try {
+        const position = await Geolocation.getCurrentPosition();
+        console.log("Current position retrieved:", position);
+
         const currentLocationPosition = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
@@ -230,6 +268,8 @@ const initializeMap = async () => {
         autocomplete.addListener("place_changed", () => {
           const place = autocomplete.getPlace();
           if (!place.geometry || !place.geometry.location) {
+            errorMessage.value =
+              "No details available for input: " + place.name;
             console.error("No details available for input: " + place.name);
             return;
           }
@@ -268,80 +308,51 @@ const initializeMap = async () => {
             }
           });
 
-          updateRoute(currentLocationPosition, place.geometry.location);
-        });
-
-        const docSnapshot = await getDoc(routeDoc);
-        if (docSnapshot.exists()) {
-          const data = docSnapshot.data();
-          const savedDestination = new google.maps.LatLng(data.destination);
-          updateRoute(currentLocationPosition, savedDestination);
-        }
-      });
-    } else {
-      console.error("Geolocation is not supported by this browser.");
-    }
-
-    // Real-time listener for route updates
-    onSnapshot(routeDoc, (docSnapshot) => {
-      if (docSnapshot.exists()) {
-        const data = docSnapshot.data();
-        currentLocation.value = data.origin;
-        destination.value = data.destination;
-        distance.value = data.distance;
-        duration.value = data.duration;
-
-        if (currentLocationMarker && destinationMarker) {
           updateRoute(
             currentLocationMarker.getPosition(),
             destinationMarker.getPosition()
           );
-        }
-      } else {
-        console.error("No such document!");
+        });
+
+        // startRoute();
+      } catch (error) {
+        errorMessage.value = `Error getting location: ${error.message}`;
+        console.error("Error getting location: ", error);
       }
     });
-
-    // Real-time listener for rider's location updates
-    onSnapshot(riderDoc, (docSnapshot) => {
-      if (docSnapshot.exists()) {
-        const riderData = docSnapshot.data();
-        if (riderData.location) {
-          const riderLocation = new google.maps.LatLng(
-            riderData.location.lat,
-            riderData.location.lng
-          );
-          if (currentLocationMarker) {
-            currentLocationMarker.setPosition(riderLocation);
-            getAddress(riderLocation, "current-location");
-            if (destinationMarker) {
-              updateRoute(riderLocation, destinationMarker.getPosition());
-              calculateDistance(riderLocation, destinationMarker.getPosition());
-            }
-          }
-        }
-      } else {
-        console.error("No such document!");
-      }
-    });
-
-    startRoute();
-  });
+  } catch (error) {
+    errorMessage.value = `Error loading map: ${error.message}`;
+    console.error("Error loading map: ", error);
+  }
 };
 
 onMounted(() => {
   initializeMap();
-});
+  const unsubscribe = onSnapshot(riderDoc, (doc) => {
+    if (doc.exists()) {
+      const riderLocation = doc.data().location;
+      if (currentLocationMarker) {
+        currentLocationMarker.setPosition(riderLocation);
+        getAddress(riderLocation, "current-location");
+        updateRoute(riderLocation, destinationMarker?.getPosition());
+      }
+    }
+  });
 
-onBeforeUnmount(() => {
-  if (intervalId) {
-    clearInterval(intervalId);
-  }
+  onBeforeUnmount(() => {
+    if (intervalId) {
+      clearInterval(intervalId);
+    }
+    if (unsubscribe) {
+      unsubscribe();
+    }
+  });
 });
 </script>
 
 <style scoped>
 #map {
+  width: 100%;
   height: 100%;
 }
 </style>
