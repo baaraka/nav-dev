@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
 import MainLayout from "@/layouts/MainLayout.vue";
-import HomePage from "@/pages/HomePage.vue";
 import CustomerPage from "@/pages/CustomerPage.vue";
 import RiderPage from "@/pages/RiderPage.vue";
 import BoosPage from "@/pages/BoosPage.vue";
@@ -13,19 +12,15 @@ const router = createRouter({
       name: "mainLayout",
       component: MainLayout,
       children: [
-        {
-          path: "",
-          name: "home",
-          component: HomePage,
-        },
+       
         {
           path: "/customer",
           name: "customer",
           component: CustomerPage,
         },
         {
-          path: "/rider",
-          name: "rider",
+          path: "",
+          name: "home",
           component: RiderPage,
         },
         {
