@@ -51,7 +51,7 @@ onMounted(() => {
 
   loader.load().then(() => {
     map.value = new google.maps.Map(document.getElementById("map"), {
-      center: { lat: -6.7924, lng: 39.2083 }, // Dar es Salaam
+      center: { lat: -6.7924, lng: 39.2083 }, // Default to Dar es Salaam
       zoom: 12,
     });
 
@@ -107,6 +107,10 @@ onMounted(() => {
                 fontWeight: "bold",
               },
             });
+          } else {
+            console.error(
+              "Geocode was not successful for the following reason: " + status
+            );
           }
         });
 
@@ -126,6 +130,10 @@ onMounted(() => {
                 fontWeight: "bold",
               },
             });
+          } else {
+            console.error(
+              "Geocode was not successful for the following reason: " + status
+            );
           }
         });
       } else {
@@ -135,3 +143,7 @@ onMounted(() => {
   });
 });
 </script>
+
+<style scoped>
+/* Add any specific styles for your component here */
+</style>
