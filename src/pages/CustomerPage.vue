@@ -6,10 +6,10 @@
         id="info"
         class="absolute bottom-4 left-4 z-10 p-2 w-80 border border-gray-300 rounded-lg shadow-md bg-white"
       >
-        <p>
+        <!-- <p>
           Rider's Current Location:
           <span id="rider-location">{{ riderLocation }}</span>
-        </p>
+        </p> -->
         <p>
           Destination: <span id="destination">{{ destination }}</span>
         </p>
@@ -37,7 +37,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 const routeDoc = doc(db, "routes", "currentRoute");
-const riderDoc = doc(db, "riders", "currentRider"); // Assumes this document contains rider's location
+const riderDoc = doc(db, "riders", "currentRider");
 
 const map = ref(null);
 const mainDirectionsRenderer = ref(null);
@@ -53,6 +53,12 @@ const arrivalTime = ref("");
 // Function to update the route
 const updateRoute = (origin, destination) => {
   const directionsService = new google.maps.DirectionsService();
+
+  if (!origin || !destination) {
+    console.error("Invalid origin or destination for directions request.");
+    return;
+  }
+
   directionsService.route(
     {
       origin,
@@ -93,7 +99,7 @@ const parseDuration = (duration) => {
       totalMinutes += value;
     }
   }
-  return totalMinutes; // Return minutes
+  return totalMinutes;
 };
 
 onMounted(() => {
@@ -103,99 +109,104 @@ onMounted(() => {
     libraries: ["places"],
   });
 
-  loader.load().then(() => {
-    map.value = new google.maps.Map(document.getElementById("map"), {
-      center: { lat: -6.7924, lng: 39.2083 }, // Dar es Salaam
-      zoom: 12,
-    });
+  loader
+    .load()
+    .then(() => {
+      map.value = new google.maps.Map(document.getElementById("map"), {
+        center: { lat: -6.7924, lng: 39.2083 },
+        zoom: 12,
+      });
 
-    mainDirectionsRenderer.value = new google.maps.DirectionsRenderer({
-      polylineOptions: {
-        strokeColor: "#00008B",
-        strokeOpacity: 1.0,
-        strokeWeight: 6,
-      },
-      suppressMarkers: false,
-    });
-    mainDirectionsRenderer.value.setMap(map.value);
+      mainDirectionsRenderer.value = new google.maps.DirectionsRenderer({
+        polylineOptions: {
+          strokeColor: "#00008B",
+          strokeOpacity: 1.0,
+          strokeWeight: 6,
+        },
+        suppressMarkers: true,
+      });
+      mainDirectionsRenderer.value.setMap(map.value);
 
-    // Firestore real-time listener for route updates
-    onSnapshot(routeDoc, (docSnapshot) => {
-      if (docSnapshot.exists()) {
-        const data = docSnapshot.data();
-        destination.value = data.destination;
+      onSnapshot(routeDoc, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const data = docSnapshot.data();
+          console.log("Route Data:", data); // Debugging line
+          destination.value = `${data.destination.lat}, ${data.destination.lng}`;
 
-        // Update the route on the map
-        if (riderMarker.value) {
-          const riderPosition = {
-            lat: parseFloat(data.origin.lat),
-            lng: parseFloat(data.origin.lng),
-          };
-          riderMarker.value.setPosition(riderPosition);
-        }
-
-        updateRoute(data.origin, data.destination);
-
-        // Place a marker for the destination
-        if (destinationMarker.value) {
-          destinationMarker.value.setMap(null);
-        }
-
-        destinationMarker.value = new google.maps.Marker({
-          position: {
-            lat: parseFloat(data.destination.lat),
-            lng: parseFloat(data.destination.lng),
-          },
-          map: map.value,
-          title: "Destination",
-          label: {
-            text: "End",
-            color: "#FF0000",
-            fontSize: "16px",
-            fontWeight: "bold",
-          },
-        });
-      } else {
-        console.log("No such document!");
-      }
-    });
-
-    // Firestore real-time listener for rider's location updates
-    onSnapshot(riderDoc, (docSnapshot) => {
-      if (docSnapshot.exists()) {
-        const riderData = docSnapshot.data();
-        if (riderData.location) {
-          const riderPosition = new google.maps.LatLng(
-            riderData.location.lat,
-            riderData.location.lng
+          const origin = new google.maps.LatLng(
+            data.origin.lat,
+            data.origin.lng
           );
+          const dest = new google.maps.LatLng(
+            data.destination.lat,
+            data.destination.lng
+          );
+
+          updateRoute(origin, dest);
+
           if (!riderMarker.value) {
             riderMarker.value = new google.maps.Marker({
-              position: riderPosition,
+              position: origin,
               map: map.value,
-              title: "Rider",
-              label: {
-                text: "Rider",
-                color: "#0000FF",
-                fontSize: "16px",
-                fontWeight: "bold",
-              },
+              label: "Rider",
             });
           } else {
-            riderMarker.value.setPosition(riderPosition);
+            riderMarker.value.setPosition(origin);
           }
 
-          // Update rider location in the UI
-          riderLocation.value = `${riderData.location.lat}, ${riderData.location.lng}`;
+          if (destinationMarker.value) {
+            destinationMarker.value.setPosition(dest);
+          } else {
+            destinationMarker.value = new google.maps.Marker({
+              position: dest,
+              map: map.value,
+              label: "Destination",
+            });
+          }
+        } else {
+          console.error("No such document! Document path:", routeDoc.path);
         }
-      } else {
-        console.log("No such document!");
-      }
+      });
+
+      onSnapshot(riderDoc, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const riderData = docSnapshot.data();
+          console.log("Rider Data:", riderData); // Debugging line
+          if (riderData.location) {
+            const riderPosition = new google.maps.LatLng(
+              riderData.location.lat,
+              riderData.location.lng
+            );
+
+            if (riderMarker.value) {
+              riderMarker.value.setPosition(riderPosition);
+            } else {
+              riderMarker.value = new google.maps.Marker({
+                position: riderPosition,
+                map: map.value,
+                label: "Rider",
+              });
+            }
+
+            riderLocation.value = `${riderPosition.lat()}, ${riderPosition.lng()}`;
+          } else {
+            console.error("No location data found for rider.");
+          }
+        } else {
+          console.error("No such document! Document path:", riderDoc.path);
+        }
+      });
+    })
+    .catch((error) => {
+      console.error("Failed to load Google Maps:", error);
     });
-  });
 });
 </script>
 
 <style scoped>
-/* You can add your CSS styles here */
+#map {
+  width: 100%;
+  height: 100%;
+}
 </style>
+
